@@ -1,0 +1,301 @@
+enum
+  NODE_ID
+  NODE_INT
+  NODE_STRING
+  NODE_LIST;
+
+class Node (
+  type     int;
+  ivalue   int;
+  svalue   string;
+  pos      int;
+  children Node;
+  next     Node;
+  loc      int;
+);
+
+fun Node_new ((type int) (pos int)) Node (
+  local n Node;
+  set n (new Node);
+
+  setm type n type;
+  setm ivalue n 0;
+  setm svalue n "";
+  setm pos n pos;
+  setm children n NULL;
+  setm next n NULL;
+  setm loc n pos;
+
+  return n;
+);
+
+fun print_node_pos ((n Node)) void (
+    print_string "node pos: ";
+    print_int (getm loc n);
+);
+
+fun Node_append_last ((n Node) (l Node)) void (
+  if (is_null n)
+    (return l);
+  if (is_null (getm next n)) (
+    setm next n l;
+    return n;
+  );
+  Node_append_last (getm next n) l;
+  return n;
+);
+
+fun Node_appendChild ((node Node) (ch Node)) void (
+  setm children node (Node_append_last (getm children node) ch);
+);
+
+fun Node_id ((node Node)) string (
+  assert (eq (getm type node) NODE_ID);
+  return (getm svalue node);
+);
+
+fun Node_str ((node Node)) string (
+  assert (eq (getm type node) NODE_STRING);
+  return (getm svalue node);
+);
+
+fun Node_next ((node Node)) Node (
+  if (is_null node)
+    (return NULL)
+    (return (getm next node));
+);
+
+fun Node_children ((node Node)) Node (
+  if (is_null node)
+    (return NULL)
+    (return (getm children node));
+);
+
+fun Node_isList ((node Node)) int (
+  if (is_null node)
+    (return 0)
+    (return (eq (getm type node) NODE_LIST));
+);
+
+class LexState (
+  (input string)
+  (i int)
+);
+
+fun LexState_next ((state LexState)) void (
+  setm i state (add (getm i state) 1);
+);
+fun LexState_prev ((state LexState)) void (
+  setm i state (sub (getm i state) 1);
+);
+fun LexState_get ((state LexState)) int (
+  return (char_at (getm input state) (getm i state));
+);
+fun LexState_isEnd ((state LexState)) int (
+  return (not (lt (getm i state) (length (getm input state))));
+);
+fun LexState_expect ((state LexState) (ch int)) void (
+  if (not (eq (LexState_get state) ch)) (
+      print_string "ERROR expecting ";
+      print_int ch;
+      print_string " got ";
+      print_int (LexState_get state);
+      print_eol;
+  );
+  LexState_next state;
+);
+
+fun isDigit ((ch int)) int (
+  return (and (ge ch 48) (le ch 57)); // '0' .. '9'
+);
+fun isAlpha ((ch int)) int (
+  return (or (and (ge ch 97) (le ch 122)) // 'a' .. 'z'
+             (and (ge ch 65) (le ch 90))); // 'A' .. 'Z'
+);
+fun isIdStart ((ch int)) int (
+  return (or (isAlpha ch) (eq ch 95)); // '_'
+);
+fun isId ((ch int)) int (
+  return (or (isIdStart ch) (isDigit ch));
+);
+
+fun lex_list ((state LexState)) Node (
+  local l Node;
+  set l (Node_new NODE_LIST (getm i state));
+  local l2 Node;
+  set l2 NULL;
+  local node Node;
+
+  local ch int;
+  local intValue int;
+  local startPos int;
+
+  while (not (LexState_isEnd state)) (
+    set startPos (getm i state);
+
+    set ch (LexState_get state);
+    LexState_next state;
+
+    if (or (eq ch 32) (eq ch 10)) ( // space or eol
+      continue;
+    );
+
+    if (eq ch 40) ( // open parenthesis
+      set l2 (Node_append_last l2 (lex_list state));
+      continue;
+    );
+
+    if (eq ch 41) ( // close parenthesis
+      break;
+    );
+
+    if (eq ch 47) ( // slash
+      LexState_expect state 47;
+
+      while (not (eq (LexState_get state) 10)) ( // TODO: fix inf loop when missing eol
+        LexState_next state;
+      );
+
+      continue;
+    );
+
+    // Parse identifier.
+
+    if (isIdStart ch) (
+      while (isId ch) (
+        set ch (LexState_get state);
+        LexState_next state;
+      );
+
+      LexState_prev state;
+
+      set node (Node_new NODE_ID startPos);
+      setm svalue node (slice (getm input state) startPos (getm i state));
+      set l2 (Node_append_last l2 node);
+
+      continue;
+    );
+
+    // Parse integer.
+
+    if (isDigit ch) (
+      set intValue 0;
+
+      while (isDigit ch) (
+        set intValue (sub (add (mul intValue 10) ch) 48); // 48 = '0'
+        set ch (LexState_get state);
+        LexState_next state;
+      );
+      LexState_prev state;
+
+      set node (Node_new NODE_INT startPos);
+      setm ivalue node intValue;
+      set l2 (Node_append_last l2 node);
+
+      continue;
+    );
+
+    // Parse character literal.
+
+//    if (eq ch #\#) (
+ //       LexState_expect state #\\;
+//
+ //       LexState_next state;
+  //      set ch (LexState_get state);
+//
+ //       set node (Node_new NODE_INT startPos);
+  //      if (eq ch #\n) (setm ivalue node #\n);
+//
+ //       setm ivalue node 4444;
+  //      set l2 (Node_append_last l2 node);
+//
+ //       continue;
+  //  );
+
+    // Parse semicolon.
+
+    if (eq ch 59) ( // ';'
+        set node (Node_new NODE_LIST startPos);
+        setm children node l2;
+        Node_appendChild l node;
+
+        set l2 NULL;
+
+        continue;
+    );
+
+    // Parse string.
+
+    if (eq ch 34) ( // "
+      set ch (LexState_get state);
+      while (not (eq ch 34)) (
+        LexState_next state;
+        set ch (LexState_get state);
+      );
+      LexState_next state;
+
+      set node (Node_new NODE_STRING startPos);
+      setm svalue node (slice (getm input state) (add startPos 1) (sub (getm i state) 1));
+      set l2 (Node_append_last l2 node);
+
+      continue;
+    );
+
+    print_line_si "lexer: unknown char " ch;
+  );
+
+  Node_appendChild l l2;
+
+  return l;
+);
+
+fun print_nodes ((node Node) (indent int)) int (
+    if (is_null node) (return 0);
+
+    print_string ";";
+    print_indent indent;
+    print_string "| " ;
+    print_int (getm type node);
+    print_string " " ;
+    if (eq (getm type node) NODE_INT) (
+        print_string "int ";
+        print_int (getm ivalue node);
+    );
+    if (eq (getm type node) NODE_ID) (
+        print_string "id ";
+        print_string (getm svalue node);
+    );
+    if (eq (getm type node) NODE_LIST) (
+        print_string "list";
+    );
+    if (eq (getm type node) NODE_STRING) (
+        print_string "string ";
+        print_string (getm svalue node);
+    );
+    print_eol;
+
+    local n Node;
+    set n (getm children node);
+    while (not (is_null n)) (
+        print_nodes n (add indent 1);
+        set n (getm next n);
+    );
+);
+
+fun lex ((input string)) Node
+(
+    local state LexState;
+    set state (new LexState);
+    setm input state input;
+    setm i state 0;
+
+    local root Node;
+    set root (lex_list state);
+
+    if (not (LexState_isEnd state)) (
+        print_string "parsing stopped unexpectedly";
+        print_eol;
+    );
+
+    return root;
+);

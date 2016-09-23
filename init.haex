@@ -1,0 +1,36 @@
+conditional compiler (
+    fun init ((arg0 int) (arg1 int) (arg2 int) (arg3 int)) string (
+        memory_write (heap_addr) 16;
+
+        //print_line_si "; arg0: " arg0;
+        //print_line_si "; arg1: " arg1;
+        //print_line_si "; arg2: " arg2;
+        //print_line_si "; arg3: " arg3;
+
+        //if (eq arg0 0) (
+        //    print_line "missing file to compile";
+        //    exit_failure;
+        //);
+        //if (eq arg2 0) (
+        //    print_line "missing file to compile";
+        //    exit_failure;
+        //);
+
+        if (eq arg3 0) (
+            return "";
+        );
+
+        local param string;
+        set param (parse_c_string arg3);
+
+        //print_line_ss "; param " param;
+
+        return param;
+    );
+);
+
+conditional interpreter (
+    fun init ((a0 int) (a1 int) (a2 int) (a3 int)) string (
+        return "main.haex";
+    );
+);

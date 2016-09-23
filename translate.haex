@@ -1,0 +1,221 @@
+enum
+  SYMBOL_CONST
+  SYMBOL_GLOBAL
+  SYMBOL_LOCAL
+  SYMBOL_FUNCTION
+  SYMBOL_PARAM
+  SYMBOL_CLASS
+  SYMBOL_MEMBER;
+
+class Symbol (
+  type     int;
+  name     string;
+  ivalue   int;
+  next     Symbol;
+
+  members Symbol;
+
+  typename string;
+
+  params     Symbol;
+  returnType string;
+  code       Node;
+);
+
+fun Symbol_new ((n string) (t int)) Symbol (
+  local s Symbol;
+  set s (new Symbol);
+  setm type s t;
+  setm name s n;
+  setm ivalue s (neg 1);
+  setm typename s "";
+  setm params s NULL;
+  setm returnType s "";
+  setm members s NULL;
+  setm next s NULL;
+  //print_string "New symbol: ";
+  //print_string (getm name s);
+  //print_eol;
+  return s;
+);
+
+fun find_symbol ((syms Symbol) (n string)) Symbol (
+    while (not_null syms) (
+        if (string_eq (getm name syms) n)
+            (return syms);
+        set syms (getm next syms);
+    );
+    return NULL;
+);
+
+fun print_symbols ((syms Symbol)) void (
+    while (not_null syms) (
+        print_line_ss "; symbol " (getm name syms);
+        set syms (getm next syms);
+    );
+);
+
+class Program (
+  globals Symbol;
+  types   Symbol;
+);
+
+fun Program_new () Program (
+  local p Program;
+  set p (new Program);
+  setm globals p NULL;
+  return p;
+);
+
+fun Program_addSymbol ((p Program) (s Symbol)) void (
+    setm next s (getm globals p);
+    setm globals p s;
+);
+
+fun translateTop ((program Program) (node Node)) void (
+    local n Node;
+    local n2 Node;
+    set n (Node_children node);
+
+    local sym Symbol;
+    local sym2 Symbol;
+    local i int;
+
+    //print_nodes node 0;
+
+    if (string_eq (Node_id n) "include") (
+        translateFile program (getm svalue (getm next n));
+
+    ) (if (string_eq (Node_id n) "conditional") (
+        if (string_eq (Node_id (Node_next n)) "compiler") (
+            set n (Node_children (Node_next (Node_next n)));
+            while (not_null n) (
+                translateTop program n;
+                set n (Node_next n);
+            );
+        );
+
+    ) (if (string_eq (Node_id n) "enum") (
+        set n (Node_next n);
+        set i 0;
+        while (not (is_null n)) (
+            set sym (Symbol_new (Node_id n) SYMBOL_CONST);
+            Program_addSymbol program sym;
+
+            setm ivalue sym i;
+
+            set i (add i 1);
+            set n (getm next n);
+        );
+
+    ) (if (string_eq (Node_id n) "class") (
+        set n (Node_next n);
+
+        set sym (Symbol_new (Node_id n) SYMBOL_CLASS);
+        Program_addSymbol program sym;
+
+        set n (Node_children (Node_next n));
+
+        set i 0;
+
+        while (not (is_null n)) (
+            set sym2 (Symbol_new (Node_id (Node_children n)) SYMBOL_MEMBER);
+            setm typename sym2 (Node_id (Node_next (Node_children n)));
+            setm ivalue sym2 i;
+            setm next sym2 (getm members sym);
+            setm members sym sym2;
+
+            set n (Node_next n);
+            set i (add i 1);
+        );
+
+        setm ivalue sym i;
+
+    ) (if (string_eq (Node_id n) "fun") (
+        set n (Node_next n);
+
+        set sym (Symbol_new (Node_id n) SYMBOL_FUNCTION);
+        Program_addSymbol program sym;
+
+        set n2 (Node_children (Node_next n));
+
+        while (not (is_null n2)) (
+            set sym2 (Symbol_new (Node_id (Node_children n2)) SYMBOL_PARAM);
+            setm typename sym2 (Node_id (Node_next (Node_children n2)));
+
+            setm next sym2 (getm params sym);
+            setm params sym sym2;
+
+            set n2 (Node_next n2);
+        );
+
+        setm returnType sym (Node_id (Node_next (Node_next n)));
+
+        setm code sym (Node_children (Node_next (Node_next (Node_next n))));
+    ) (
+        print_string "bad declaration ";
+        print_string (Node_id n);
+        print_eol;
+        exit_failure;
+    )))));
+);
+
+fun translate ((prog Program) (root Node)) void (
+    local node Node;
+
+    set node (Node_children root);
+    
+    while (not (is_null node)) (
+        translateTop prog node;
+        set node (Node_next node);
+    );
+);
+
+fun translateFile ((prog Program) (filename string)) void (
+  print_string "; begin translation ";
+  print_string filename;
+  print_eol;
+
+  local s string;
+  set s (read_file filename);
+
+  local root Node;
+  set root (lex s);
+
+//  print_nodes root 0;
+
+  translate prog root;
+);
+
+fun printSymbol ((sym Symbol) (indent int)) void (
+    print_indent indent;
+    print_string (getm name sym);
+    print_string " ";
+    print_int (getm type sym);
+    print_eol;
+
+    if (not_null (getm members sym)) (
+        print_indent (add indent 1);
+        print_string "members";
+        print_eol;
+        printSymbols (getm members sym) (add indent 2);
+    );
+
+    if (not_null (getm params sym)) (
+        print_indent (add indent 1);
+        print_string "params";
+        print_eol;
+        printSymbols (getm params sym) (add indent 2);
+    );
+);
+
+fun printSymbols ((s Symbol) (indent int)) void (
+    while (not (is_null s)) (
+        printSymbol s indent;
+        set s (getm next s);
+    );
+);
+
+fun printSymbolTable ((prog Program)) void (
+    printSymbols (getm globals prog) 4;
+);

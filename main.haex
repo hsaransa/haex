@@ -1,0 +1,22 @@
+include "utils.haex";
+include "lexer.haex";
+include "translate.haex";
+include "x86-64.haex";
+include "init.haex";
+
+fun main ((arg0 int) (arg1 int) (arg2 int) (arg3 int)) void (
+    local fn string;
+    
+    set fn (init arg0 arg1 arg2 arg3);
+
+    local prog Program;
+    set prog (Program_new);
+
+    translateFile prog fn;
+
+    //printSymbolTable prog;
+
+    compile_to_x86_64 prog;
+
+    exit_success;
+);

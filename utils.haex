@@ -1,0 +1,215 @@
+fun print_indent ((indent int)) void (
+    local i int;
+    set i 0;
+    while (lt i indent) (
+        (print_string "  ");
+        (set i (add i 1))
+    );
+);
+
+fun print_line ((s string)) void (
+  print_string s;
+  print_eol;
+);
+
+fun print_line_ss ((a string) (b string)) void (
+  print_string a;
+  print_string b;
+  print_eol;
+);
+
+fun print_line_si ((a string) (b int)) void (
+  print_string a;
+  print_int b;
+  print_eol;
+);
+
+fun nop () void (
+    local i int;
+);
+
+fun print_digit ((i int)) void (
+  print_char (add 48 i);
+);
+
+conditional compiler (
+  class string (
+    size int;
+    addr int;
+  );
+
+  fun length ((s string)) int (
+    return (getm size s);
+  );
+
+  fun char_at ((s string) (i int)) int (
+    assert (ge i 0);
+    assert (lt i (length s));
+    return (memory_read_byte (add (getm addr s) i));
+  );
+
+  fun slice ((str string) (start int) (end int)) string (
+    local s string;
+    set s (new string);
+    setm size s (sub end start);
+    setm addr s (add (getm addr str) start);
+    return s;
+  );
+
+  fun string_eq ((a string) (b string)) int (
+    if (not (eq (length a) (length b))) (
+        return 0;
+    );
+
+    local i int;
+    set i 0;
+    while (lt i (length a)) (
+        if (not (eq (char_at a i) (char_at b i))) (
+            return 0;
+        );
+        set i (add i 1);
+    );
+    return 1;
+  );
+
+  fun print_string ((s string)) void (
+    local ret int;
+    set ret (syscall 1 1 (getm addr s) (getm size s));
+  );
+
+  fun print_char ((ch int)) void (
+    local ret int;
+    set ret ch;
+    set ret (syscall 1 1 (address_of ret) 1);
+  );
+
+  fun print_eol () void (
+    print_char 10;
+  );
+
+  fun print_int_rec ((i int)) void (
+    local v int;
+    if (lt i 10) (
+        print_digit i;
+    ) (
+        set v (sub i (mul (div i 10) 10));
+        print_int_rec (div i 10);
+        print_digit v;
+    );
+  );
+
+  fun print_int ((i int)) void (
+    if (lt i 0) (
+        print_char 45;
+        set i (neg i);
+    );
+    print_int_rec i;
+  );
+
+  fun allocate ((size int)) int (
+    local pos int;
+    set pos (add (memory_read (heap_addr)) 8);
+    memory_write (add (heap_addr) 0) (add pos size);
+    //print_line_si "allocated at " pos;
+    //print_line_si "alloc size " size;
+    return (add (heap_addr) pos);
+  );
+
+  fun gt ((a int) (b int)) int (
+    return (lt b a);
+  );
+
+  fun eq ((a int) (b int)) int (
+    return (and (not (lt a b)) (not (gt a b)));
+  );
+
+  fun ge ((a int) (b int)) int (
+    return (or (gt a b) (eq a b));
+  );
+
+  fun le ((a int) (b int)) int (
+    return (or (lt a b) (eq a b));
+  );
+
+  fun sub ((a int) (b int)) int (
+    return (add a (neg b));
+  );
+
+  fun make_c_string ((s string)) int (
+    local cstring int;
+    local i int;
+    set cstring (allocate (add (length s) 1));
+
+    set i 0;
+    while (lt i (length s)) (
+        memory_write_byte (add cstring i) (char_at s i);
+        set i (add i 1);
+    );
+    memory_write_byte (add cstring i) 0;
+    return cstring;
+  );
+
+  fun parse_c_string ((ptr int)) string (
+    local str string;
+    local i int;
+    set i 0;
+    while (not (eq (memory_read_byte (add ptr i)) 0)) (
+        set i (add i 1);
+    );
+
+    set str (new string);
+    setm size str i;
+    setm addr str (allocate i);
+
+    set i 0;
+    while (lt i (getm size str)) (
+        memory_write_byte (add (getm addr str) i) (memory_read_byte (add ptr i));
+        set i (add i 1);
+    );
+
+    return str;
+  );
+
+  fun open_file ((s string)) int (
+    local ret int;
+    local cstring int;
+
+    set cstring (make_c_string s);
+
+    set ret (syscall 2 cstring 0 0);
+
+    return ret;
+  );
+
+  fun read_from_fd ((fd int) (dst int) (count int)) int (
+    return (syscall 0 fd dst count);
+  );
+
+  fun read_file ((s string)) string (
+    local fd int;
+    set fd (open_file s);
+    assert (gt fd 0);
+
+    local str string;
+    set str (new string);
+    setm addr str (allocate 65536);
+
+    local num int;
+    set num (read_from_fd fd (getm addr str) 65536);
+
+    setm size str num;
+
+    return str;
+  );
+
+  fun assert ((cond int)) void (
+    if (eq cond 0) (
+        print_line_si "assertion failed: " cond;
+        exit_failure;
+    );
+  );
+
+  fun exit_success () void (
+    return (syscall 60 0 0 0);
+  );
+);

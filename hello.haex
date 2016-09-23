@@ -1,0 +1,39 @@
+include "utils.haex";
+include "init.haex";
+
+fun print_circle () void (
+    local x int;
+    local y int;
+    local lx int;
+    local ly int;
+
+    set y 0;
+    while (lt y 20) (
+        set x 0;
+        while (lt x 40) (
+            set lx (sub x 20);
+            set ly (sub y 10);
+
+            if (le (add (mul lx lx) (mul ly ly)) 99) (
+                print_string "XX";
+            ) (
+                print_string "  ";
+            );
+            set x (add x 1);
+        );
+        print_eol;
+        set y (add y 1);
+    );
+);
+
+fun main ((arg0 int) (arg1 int) (arg2 int) (arg3 int)) void (
+    local param string;
+    set param (init arg0 arg1 arg2 arg3);
+
+    print_line_ss "param: " param;
+    print_line "Hello.";
+    print_circle;
+
+    exit_success;
+
+);

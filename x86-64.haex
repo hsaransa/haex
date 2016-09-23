@@ -1,0 +1,597 @@
+fun collect_locals ((node Node) (symbols Symbol)) Symbol (
+    local sym Symbol;
+    local n Node;
+    local i int;
+
+    set i 1;
+
+    while (not (is_null node)) (
+        set n (Node_children node);
+
+        if (string_eq (Node_id n) "local") (
+            set sym (Symbol_new (Node_id (Node_next n)) SYMBOL_LOCAL);
+            setm typename sym (Node_id (Node_next (Node_next n)));
+            setm ivalue sym (neg i);
+            set i (add i 1);
+            
+            setm next sym symbols;
+            set symbols sym;
+        );
+
+        set node (Node_next node);
+    );
+
+    return symbols;
+);
+
+class EmitString (
+  label int;
+  data  string;
+  next  EmitString;
+);
+
+class EmitState (
+  label int;
+  symbols Symbol;
+  continueLabel int;
+  breakLabel int;
+  strings EmitString;
+  typename string;
+);
+
+fun new_label ((state EmitState)) int (
+  setm label state (add (getm label state) 1);
+  return (getm label state);
+);
+
+fun emit_s ((s string)) void (
+    print_string "    ";
+    print_string s;
+    print_eol;
+);
+
+fun emit_l ((l int)) void (
+    print_string ".L";
+    print_int l;
+    print_string ":";
+    print_eol;
+);
+
+fun emit_ss ((a string) (b string)) void (
+    print_string "    ";
+    print_string a;
+    print_string b;
+    print_eol;
+);
+
+fun emit_sis ((a string) (i int) (b string)) void (
+    print_string "    ";
+    print_string a;
+    print_int i;
+    print_string b;
+    print_eol;
+);
+
+fun emit_expr ((node Node) (state EmitState)) int (
+    local label int;
+    local sym Symbol;
+    local str EmitString;
+
+    setm typename state "";
+
+    if (eq (getm type node) NODE_ID) (
+        if (string_eq (Node_id node) "NULL") (
+            emit_s "mov rax, 0";
+            return 0;
+        );
+
+        set sym (find_symbol (getm symbols state) (Node_id node));
+
+        if (is_null sym) (
+            print_line_ss "bad symbol " (Node_id node);
+        );
+        assert (not_null sym);
+
+        if (eq (getm type sym) SYMBOL_CONST) (
+            emit_sis "mov rax, " (getm ivalue sym) "";
+            return 0;
+        );
+
+        setm typename state (getm typename sym);
+
+        emit_sis "mov rax, [rbp+" (mul 8 (getm ivalue sym)) "]";
+
+        return 0;
+    );
+
+    if (eq (getm type node) NODE_INT) (
+        emit_sis "mov rax, " (getm ivalue node) "";
+        return 0;
+    );
+
+    if (eq (getm type node) NODE_STRING) (
+        set label (new_label state);
+
+        set str (new EmitString);
+        setm label str label;
+        setm data str (Node_str node);
+        setm next str (getm strings state);
+
+        setm strings state str;
+
+        emit_sis "mov rax, str" label "";
+        return 0;
+    );
+
+    if (string_eq (Node_id (Node_children node)) "getm") (
+        emit_expr (Node_next (Node_next (Node_children node))) state;
+
+        set sym (find_symbol (getm symbols state) (getm typename state));
+        assert (not_null sym);
+
+        set sym (getm members sym);
+        while (not_null sym) (
+            if (string_eq (getm name sym) (Node_id (Node_next (Node_children node)))) (
+                emit_sis "add rax, " (mul (getm ivalue sym) 8) "";
+                emit_s "mov rax, [rax]";
+                break;
+            );
+            set sym (getm next sym);
+        );
+
+        if (is_null sym) (
+            print_line "not found ";
+            print_line (Node_id (Node_next (Node_children node)));
+        );
+
+        assert (not_null sym);
+
+        return 0;
+    );
+
+    if (string_eq (Node_id (Node_children node)) "address_of") (
+        set sym (find_symbol (getm symbols state) (Node_id (Node_next (Node_children node))));
+        assert (not_null sym);
+
+        emit_sis "lea rax, [rbp+" (mul 8 (getm ivalue sym)) "]";
+
+        return 0;
+    );
+
+    if (string_eq (Node_id (Node_children node)) "memory_read") (
+        emit_expr (Node_next (Node_children node)) state;
+        emit_s "mov rax, [rax]";
+        return 0;
+    );
+
+    if (string_eq (Node_id (Node_children node)) "memory_read_byte") (
+        emit_expr (Node_next (Node_children node)) state;
+        emit_s "mov rbx, rax";
+        emit_s "xor rax, rax";
+        emit_s "mov al, [rbx]";
+        return 0;
+    );
+
+    if (string_eq (Node_id (Node_children node)) "heap_addr") (
+        emit_s "lea rax, [heap_memory]";
+        return 0;
+    );
+
+    if (string_eq (Node_id (Node_children node)) "new") (
+        set sym (find_symbol (getm symbols state) (Node_id (Node_next (Node_children node))));
+        assert (not_null sym);
+
+        emit_sis "push " (mul (getm ivalue sym) 8) "";
+        emit_s "call _allocate";
+        emit_s "pop rbx";
+
+        return 0;
+    );
+
+    if (string_eq (Node_id (Node_children node)) "not") (
+        emit_expr (Node_next (Node_children node)) state;
+        emit_s "mov rbx, rax";
+        emit_s "xor rax, rax";
+        emit_s "test rbx, rbx";
+        emit_s "sete al";
+        return 0;
+    );
+
+    if (string_eq (Node_id (Node_children node)) "is_null") (
+        emit_expr (Node_next (Node_children node)) state;
+        emit_s "mov rbx, rax";
+        emit_s "xor rax, rax";
+        emit_s "test rbx, rbx";
+        emit_s "sete al";
+        return 0;
+    );
+
+    if (string_eq (Node_id (Node_children node)) "not_null") (
+        emit_expr (Node_next (Node_children node)) state;
+        emit_s "mov rbx, rax";
+        emit_s "xor rax, rax";
+        emit_s "test rbx, rbx";
+        emit_s "setne al";
+        return 0;
+    );
+
+    if (string_eq (Node_id (Node_children node)) "add") (
+        emit_expr (Node_next (Node_children node)) state;
+        emit_s "push rax";
+        emit_expr (Node_next (Node_next (Node_children node))) state;
+        emit_s "pop rbx";
+        emit_s "add rax, rbx";
+        return 0;
+    );
+
+    if (string_eq (Node_id (Node_children node)) "and") (
+        emit_expr (Node_next (Node_children node)) state;
+        emit_s "push rax";
+        emit_expr (Node_next (Node_next (Node_children node))) state;
+        emit_s "pop rbx";
+        emit_s "and rax, rbx";
+        return 0;
+    );
+
+    if (string_eq (Node_id (Node_children node)) "or") (
+        emit_expr (Node_next (Node_children node)) state;
+        emit_s "push rax";
+        emit_expr (Node_next (Node_next (Node_children node))) state;
+        emit_s "pop rbx";
+        emit_s "or rax, rbx";
+        return 0;
+    );
+
+    if (string_eq (Node_id (Node_children node)) "mul") (
+        emit_expr (Node_next (Node_children node)) state;
+        emit_s "push rax";
+        emit_expr (Node_next (Node_next (Node_children node))) state;
+        emit_s "pop rbx";
+        emit_s "mul rbx";
+        return 0;
+    );
+
+    if (string_eq (Node_id (Node_children node)) "div") (
+        emit_expr (Node_next (Node_children node)) state;
+        emit_s "push rax";
+        emit_expr (Node_next (Node_next (Node_children node))) state;
+        emit_s "pop rbx";
+        emit_s "xchg rax, rbx";
+        emit_s "cqo";
+        emit_s "idiv rbx";
+        return 0;
+    );
+
+    if (string_eq (Node_id (Node_children node)) "neg") (
+        emit_expr (Node_next (Node_children node)) state;
+        emit_s "neg rax";
+        return 0;
+    );
+
+    if (string_eq (Node_id (Node_children node)) "lt") (
+        emit_expr (Node_next (Node_children node)) state;
+        emit_s "push rax";
+        emit_expr (Node_next (Node_next (Node_children node))) state;
+        emit_s "pop rbx";
+        emit_s "mov rcx, rax";
+        emit_s "xor rax, rax";
+        emit_s "cmp rbx, rcx";
+        emit_s "setl al";
+        emit_s "movsx rax, al";
+        return 0;
+    );
+
+    if (string_eq (Node_id (Node_children node)) "syscall") (
+        emit_expr (Node_next (Node_children node)) state;
+        emit_s "push rax";
+        emit_expr (Node_next (Node_next (Node_children node))) state;
+        emit_s "push rax";
+        emit_expr (Node_next (Node_next (Node_next (Node_children node)))) state;
+        emit_s "push rax";
+        emit_expr (Node_next (Node_next (Node_next (Node_next (Node_children node))))) state;
+        emit_s "push rax";
+
+        emit_s "pop rdx";
+        emit_s "pop rsi";
+        emit_s "pop rdi";
+        emit_s "pop rax";
+
+        emit_s "syscall";
+
+        return 0;
+    );
+
+
+    emit_function_call node state;
+);
+
+fun emit_function_call ((node Node) (state EmitState)) int (
+    local sym Symbol;
+    local n Node;
+
+    set sym (find_symbol (getm symbols state) (Node_id (Node_children node)));
+
+    if (is_null sym) (
+        emit_ss "int 3 ; cannot function call " (Node_id (Node_children node));
+        return 0;
+    );
+
+    assert (eq (getm type sym) SYMBOL_FUNCTION);
+
+    set n (Node_next (Node_children node));
+    while (not_null n) (
+        emit_expr n state;
+        emit_s "push rax";
+        set n (Node_next n);
+    );
+
+    emit_ss "call _" (getm name sym);
+
+    set n (Node_next (Node_children node));
+    while (not_null n) (
+        emit_s "pop rbx";
+        set n (Node_next n);
+    );
+
+    return 0;
+);
+
+fun emit_statement ((node Node) (state EmitState)) int (
+    local sym Symbol;
+    local n Node;
+    local label1 int;
+    local label2 int;
+    local label3 int;
+    local prevContinueLabel int;
+    local prevBreakLabel int;
+
+    if (not (Node_isList node)) (
+        emit_sis "int 3 ; should be list in statement " (getm type node) "";
+        return 0;
+    );
+
+    if (Node_isList (Node_children node)) (
+        set node (Node_children node);
+        while (not_null node) (
+            emit_statement node state;
+            set node (Node_next node);
+        );
+        return 0;
+    );
+
+    // Function call.
+
+    set sym (find_symbol (getm symbols state) (Node_id (Node_children node)));
+
+    if (not_null sym) (
+        emit_function_call node state;
+        return 0;
+    );
+
+    set n (Node_children node);
+
+    if (string_eq (Node_id n) "memory_write") (
+        emit_expr (Node_next n) state;
+        emit_s "push rax";
+        emit_expr (Node_next (Node_next n)) state;
+        emit_s "pop rbx";
+        emit_s "mov [rbx], rax";
+        return 0;
+    );
+
+    if (string_eq (Node_id n) "memory_write_byte") (
+        emit_expr (Node_next n) state;
+        emit_s "push rax";
+        emit_expr (Node_next (Node_next n)) state;
+        emit_s "pop rbx";
+        emit_s "mov [rbx], al";
+        return 0;
+    );
+
+    if (string_eq (Node_id n) "local") (
+        nop;
+
+    ) (if (string_eq (Node_id n) "set") (
+        set sym (find_symbol (getm symbols state) (Node_id (Node_next n)));
+        if (is_null sym) (
+            print_line "set: symbol not found:";
+            print_line (Node_id (Node_next n));
+            print_node_pos (Node_next n);
+            print_symbols (getm symbols state);
+            exit_failure;
+        );
+
+        emit_expr (Node_next (Node_next n)) state;
+        emit_sis "mov [rbp+" (mul (getm ivalue sym) 8) "], rax";
+
+    ) (if (string_eq (Node_id n) "setm") (
+        emit_expr (Node_next (Node_next n)) state;
+
+        set sym (find_symbol (getm symbols state) (getm typename state));
+        assert (not_null sym);
+
+        set sym (getm members sym);
+        while (not_null sym) (
+            if (string_eq (getm name sym) (Node_id (Node_next n))) (
+                emit_sis "add rax, " (mul (getm ivalue sym) 8) "";
+                emit_s "push rax";
+                emit_expr (Node_next (Node_next (Node_next n))) state;
+                emit_s "pop rbx";
+                emit_s "mov [rbx], rax";
+                break;
+            );
+            set sym (getm next sym);
+        );
+
+        if (is_null sym) (
+            print_line "not found ";
+            print_line (Node_id (Node_next n));
+        );
+
+        assert (not_null sym);
+
+        return 0;
+
+    ) (if (string_eq (Node_id n) "if") (
+        set label1 (new_label state);
+        set label2 (new_label state);
+
+        emit_expr (Node_next n) state;
+        emit_s "cmp rax, 0";
+        emit_sis "je .L" label1 "";
+        emit_statement (Node_next (Node_next n)) state;
+        emit_sis "jmp .L" label2 "";
+        emit_l label1;
+        if (not_null (Node_next (Node_next (Node_next n)))) (
+            emit_statement (Node_next (Node_next (Node_next n))) state;
+        );
+        emit_l label2;
+
+    ) (if (string_eq (Node_id n) "while") (
+        set label1 (new_label state);
+        set label2 (new_label state);
+
+        set prevContinueLabel (getm continueLabel state);
+        set prevBreakLabel (getm breakLabel state);
+
+        setm continueLabel state label1;
+        setm breakLabel state label2;
+
+        emit_l label1;
+        emit_expr (Node_next n) state;
+        emit_s "cmp rax, 0";
+        emit_sis "je .L" label2 "";
+        emit_statement (Node_next (Node_next n)) state;
+        emit_sis "jmp .L" label1 "";
+        emit_l label2;
+
+        setm continueLabel state prevContinueLabel;
+        setm breakLabel state prevBreakLabel;
+
+    ) (if (string_eq (Node_id n) "continue") (
+        emit_sis "jmp .L" (getm continueLabel state) "";
+
+    ) (if (string_eq (Node_id n) "break") (
+        emit_sis "jmp .L" (getm breakLabel state) "";
+
+    ) (if (string_eq (Node_id n) "return") (
+        emit_expr (Node_next n) state;
+        emit_s "leave";
+        emit_s "ret";
+    ) (
+        emit_ss "int 3 ; cannot stat " (Node_id (Node_children node));
+    ))))))));
+);
+
+fun compile_to_x86_64 ((prog Program)) void (
+    local sym Symbol;
+    local sym2 Symbol;
+    local sym3 Symbol;
+    local symbols Symbol;
+    local s Symbol;
+    local state EmitState;
+    local node Node;
+    local i int;
+    local num int;
+
+    set sym (getm globals prog);
+
+    set state (new EmitState);
+    setm label state 0;
+    setm continueLabel state (neg 1);
+    setm breakLabel state (neg 1);
+    setm strings state NULL;
+
+    print_line "section .text";
+    print_line "global _start";
+    print_line "_start:";
+    emit_s "pop rax";
+    emit_s "jmp _main";
+
+    while (not_null sym) (
+        if (eq (getm type sym) SYMBOL_FUNCTION) (
+            print_eol;
+            print_string "_";
+            print_string (getm name sym);
+            print_string ":";
+            print_eol;
+
+            emit_s "push rbp";
+            emit_s "mov rbp, rsp";
+            emit_s "sub rsp, 256"; // TODO: reserve actual size
+
+            // Params.
+
+            set symbols (getm globals prog);
+
+            set num 0;
+            set s (getm params sym);
+            while (not_null s) (
+                set num (add num 1);
+                set s (getm next s);
+            );
+
+            set s (getm params sym);
+            set i 2; //(add 1 num);
+            while (not_null s) (
+                set sym3 (Symbol_new (getm name s) SYMBOL_PARAM);
+                setm typename sym3 (getm typename s);
+                setm ivalue sym3 i;
+                set i (add i 1);
+
+                setm next sym3 symbols;
+                set symbols sym3;
+
+                set s (getm next s);
+            );
+
+            // Locals.
+
+            set symbols (collect_locals (getm code sym) symbols);
+
+            setm symbols state symbols;
+
+            set node (getm code sym);
+            while (not_null node) ( 
+                emit_statement node state;
+                set node (Node_next node);
+            );
+
+            emit_s "leave";
+            emit_s "ret";
+        );
+
+        set sym (getm next sym);
+    );
+
+    print_line "section .rodata";
+
+    local str EmitString;
+
+    set str (getm strings state);
+    while (not_null str) (
+        print_string "str";
+        print_int (getm label str);
+        print_string ": dq ";
+        print_int (length (getm data str));
+        print_string ", strdata";
+        print_int (getm label str);
+        print_eol;
+        set str (getm next str);
+    );
+
+    set str (getm strings state);
+    while (not_null str) (
+        print_string "strdata";
+        print_int (getm label str);
+        print_string ": db ";
+        print_char 34;
+        print_string (getm data str);
+        print_char 34;
+        print_eol;
+        set str (getm next str);
+    );
+
+    print_line "section .bss";
+    print_line "heap_memory: resb 8*1024*1024";
+);
