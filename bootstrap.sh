@@ -4,7 +4,7 @@ set -e -x
 
 echo "Use python to interpret compiler"
 
-python haex.py main.haex > interpreted.s
+python3 haex.py main.haex > interpreted.s
 yasm -f elf64 -g dwarf2 interpreted.s -o interpreted.o
 ld -o interpreted interpreted.o
 

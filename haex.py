@@ -414,7 +414,7 @@ def main(fn):
     except SystemExit:
         raise
     except:
-        print 'Last position', lastPos
+        print('Last position', lastPos)
         raise
 
 if __name__ == '__main__':
