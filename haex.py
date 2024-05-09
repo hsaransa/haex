@@ -7,9 +7,9 @@ class Function:
 class Type:
     pass
 
-class BreakLoop: pass
-class ContinueLoop: pass
-class ReturnValue: pass
+class BreakLoop(BaseException): pass
+class ContinueLoop(BaseException): pass
+class ReturnValue(BaseException): pass
 
 locations = {}
 types = {}
